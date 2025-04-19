@@ -1,99 +1,82 @@
-from flask import Blueprint, request, render_template, redirect, url_for, flash
-from flask_jwt_extended import jwt_required, get_jwt_identity, current_user, unset_jwt_cookies
-from flask import jsonify
-import requests
-import os
-import json
-
-# Compute the path to your JSON file
-JSON_PATH = os.path.join(
-    os.path.dirname(__file__),   # App/views
-    'ingredient_list.json'
-)
-
-# Load once at import time
-with open(JSON_PATH, 'r', encoding='utf-8') as f:
-    LOCAL_INGREDIENTS = json.load(f).get('meals', [])
-
-
+# App/views/ingredient_views.py
+import os, json
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
+from App.database import db
+from App.models.ingredient import Ingredient
 
 ingredient_views = Blueprint('ingredient_views', __name__, template_folder='../templates')
 
-@ingredient_views.route('/dashboard', methods=['GET', 'POST'])
+# load local JSON if you still want it:
+JSON_PATH = os.path.join(os.path.dirname(__file__), 'ingredient_list.json')
+with open(JSON_PATH, 'r', encoding='utf-8') as f:
+    LOCAL_INGREDIENTS = json.load(f).get('meals', [])
+
+def get_user_ingredients(user_id):
+    return Ingredient.query.filter_by(user_id=user_id).all()
+
+def add_ingredient_to_user(user_id, ingredient_id, name, quantity):
+    item = Ingredient.query.filter_by(user_id=user_id, ingredient_id=ingredient_id).first()
+    if item:
+        item.quantity += quantity
+    else:
+        item = Ingredient(user_id=user_id,
+                          ingredient_id=ingredient_id,
+                          name=name,
+                          quantity=quantity)
+        db.session.add(item)
+    db.session.commit()
+
+def remove_ingredient_from_user(user_id, ingredient_id):
+    item = Ingredient.query.filter_by(user_id=user_id, ingredient_id=ingredient_id).first()
+    if not item:
+        return False
+    db.session.delete(item)
+    db.session.commit()
+    return True
+
+@ingredient_views.route('/dashboard', methods=['GET','POST'])
 @jwt_required()
 def dashboard():
-    """Display the dashboard with local ingredient list and inventory."""
-    user_id   = get_jwt_identity()
-    query     = request.form.get('query', '').lower()
-    show_all  = request.form.get('show_all')
+    user_id = get_jwt_identity()
+    # use local JSON instead of API:
+    all_ingredients = LOCAL_INGREDIENTS
 
-    # 🔄 Load from local JSON instead of external API
-    json_path = os.path.join(os.path.dirname(__file__), 'ingredient_list.json')
-    with open(json_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    all_ingredients = data.get('meals', [])
-
-    # ✅ Filter logic: if no "show_all" and a query was submitted, filter—
-    # otherwise show all
-    if not show_all and query:
-        search_results = [
-            ing for ing in all_ingredients
-            if query in ing['strIngredient'].lower()
-        ]
+    if request.method == 'POST':
+        q = request.form.get('query','').strip().lower()
+        search_results = [ing for ing in all_ingredients if q in ing['strIngredient'].lower()]
+        search_error = (len(search_results) == 0)
     else:
         search_results = all_ingredients
+        search_error = False
 
-    # TODO: pull from your DB here
-    user_ingredients = []
+    user_items = get_user_ingredients(user_id)
+    user_ids = {ui.ingredient_id for ui in user_items}
 
-    return render_template(
-        'dashboard.html',
+    return render_template('dashboard.html',
         search_results=search_results,
-        user_ingredients=user_ingredients
+        user_ingredients=user_items,
+        user_ingredient_ids=user_ids,
+        search_error=search_error,
+        username=current_user.username
     )
 
 @ingredient_views.route('/ingredients/add', methods=['POST'])
 @jwt_required()
 def add_ingredient_view():
-    """Add an ingredient to the user's inventory."""
     user_id = get_jwt_identity()
-    ingredient_id = request.form.get('ingredient_id')
-    name = request.form.get('name')
-    quantity = int(request.form.get('quantity', 1))
-    add_ingredient_to_user(user_id, ingredient_id, name, quantity)
-    flash('Ingredient added successfully.')
+    ing_id  = request.form['ingredient_id']
+    name    = request.form['name']
+    qty     = int(request.form.get('quantity',1))
+    add_ingredient_to_user(user_id, ing_id, name, qty)
+    flash('Ingredient added.')
     return redirect(url_for('ingredient_views.dashboard'))
 
 @ingredient_views.route('/ingredients/remove', methods=['POST'])
 @jwt_required()
 def remove_ingredient_view():
-    """Remove an ingredient from the user's inventory."""
     user_id = get_jwt_identity()
-    ingredient_id = request.form.get('ingredient_id')
-    success = remove_ingredient_from_user(user_id, ingredient_id)
-    if success:
-        flash('Ingredient removed successfully.')
-    else:
-        flash('Ingredient not found.')
+    ing_id  = request.form['ingredient_id']
+    removed = remove_ingredient_from_user(user_id, ing_id)
+    flash('Removed.' if removed else 'Not found.')
     return redirect(url_for('ingredient_views.dashboard'))
-
-@ingredient_views.route('/inventory', methods=['GET', 'POST'])
-@jwt_required()
-def view_inventory():
-    """View and manage the user's inventory."""
-    user_id = get_jwt_identity()
-    if request.method == 'POST':
-        ingredient_id = request.form.get('ingredient_id')
-        quantity = int(request.form.get('quantity', 1))
-        update_ingredient_quantity(user_id, ingredient_id, quantity)
-        flash('Quantity updated successfully.')
-    ingredients = get_user_ingredients(user_id)
-    return render_template('inventory.html', ingredients=ingredients)
-
-@ingredient_views.route('/logout', methods=['POST'])
-@jwt_required()
-def logout():
-    """Logout the user and redirect to the landing page."""
-    unset_jwt_cookies
-    flash('You have been logged out.')
-    return redirect(url_for('index.html'))  

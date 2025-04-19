@@ -1,76 +1,53 @@
 {% extends 'dashboard_layout.html' %}
-
 {% block content %}
-<div style="display: flex;">
-     <!-- Sidebar: Ingredient list & search -->
-     <div style="width: 250px; padding: 1em; border-right: 1px solid #ccc;">
-        <!-- Toggle Button -->
-        <form method="GET" action="{{ url_for('ingredient_views.dashboard') }}">
-            <button type="submit" id="toggle-ingredients-btn" class="btn-outline" style="margin-bottom: 1em; width: 100%;">
-                All Ingredients
-            </button>
+<div class="ingredients-panel">
+  <h3>Ingredients</h3>
+
+  <div class="controls-row">
+    <form method="GET" action="{{ url_for('ingredient_views.dashboard') }}">
+      <button type="submit" class="btn-show-all">Show All</button>
+    </form>
+    <form method="POST" action="{{ url_for('ingredient_views.dashboard') }}" style="flex:1;display:flex;">
+      <input type="text" name="query" placeholder="Search…" required>
+      <button type="submit" class="btn-search">Go</button>
+    </form>
+  </div>
+
+  {% if search_error %}
+    <div style="color:red;font-weight:600;margin-bottom:0.5rem;">
+      BigBack{{ username }}, that ingredient is not available for search.
+    </div>
+  {% endif %}
+
+  <div class="ingredients-list">
+    {% for ing in search_results %}
+      <div class="ingredient-card">
+        <span class="name">{{ ing.strIngredient }}</span>
+
+        <form method="POST" action="{{ url_for('ingredient_views.add_ingredient_view') }}" style="display:inline;">
+          <input type="hidden" name="ingredient_id" value="{{ ing.idIngredient }}">
+          <input type="hidden" name="name" value="{{ ing.strIngredient }}">
+          <input type="hidden" name="quantity" value="1">
+          <button class="add">Add</button>
         </form>
 
-        <!-- Search Form -->
-        <form method="POST" action="{{ url_for('ingredient_views.dashboard') }}" style="margin-bottom: 1.5em;">
-            <input type="text" name="query" placeholder="Search ingredient" style="width: 100%; padding: 0.4em;" required>
-            <button type="submit" class="btn-primary" style="margin-top: 0.5em; width: 100%;">Search</button>
+        {% if ing.idIngredient in user_ingredient_ids %}
+        <form method="POST" action="{{ url_for('ingredient_views.remove_ingredient_view') }}" style="display:inline;">
+          <input type="hidden" name="ingredient_id" value="{{ ing.idIngredient }}">
+          <button class="remove">Remove</button>
         </form>
-
-        <!-- Ingredient Section -->
-        <div id="ingredients-section" style="display: block;">
-            <h3>All Ingredients</h3>
-
-            <!-- Show error message if needed -->
-            {% if search_error %}
-                <div style="color: red; font-weight: bold; margin-bottom: 1em;">
-                    BigBack{{ username }}, that ingredient is not available for search.
-                </div>
-            {% endif %}
-
-            <ul style="list-style: none; padding: 0;">
-                {% for ing in search_results %}
-                <li style="margin-bottom: 10px;">
-                    {{ ing.strIngredient }}
-                    <form method="POST" action="{{ url_for('ingredient_views.add_ingredient_view') }}">
-                        <input type="hidden" name="ingredient_id" value="{{ ing.idIngredient }}">
-                        <input type="hidden" name="name" value="{{ ing.strIngredient }}">
-                        <input type="number" name="quantity" min="1" value="1" style="width: 50px;">
-                        <button type="submit">Add</button>
-                    </form>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-    </div>
-
-    <!-- Main: Inventory -->
-    <div style="flex-grow: 1; padding: 1em;">
-        <h2>My Inventory</h2>
-        <ul>
-            {% for ing in user_ingredients %}
-            <li>
-                {{ ing.name }} - Quantity: {{ ing.quantity }}
-                <form method="POST" action="{{ url_for('ingredient_views.remove_ingredient_view') }}">
-                    <input type="hidden" name="ingredient_id" value="{{ ing.ingredient_id }}">
-                    <button type="submit">Remove</button>
-                </form>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
 </div>
 
-<!-- Toggle Script -->
-<script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const toggleBtn = document.getElementById("toggle-ingredients-btn");
-        const ingredientsSection = document.getElementById("ingredients-section");
-
-        toggleBtn.addEventListener("click", () => {
-            const isVisible = ingredientsSection.style.display === "block";
-            ingredientsSection.style.display = isVisible ? "none" : "block";
-        });
-    });
-</script>
+<div style="margin-left:320px;padding:2rem;">
+  <h2>My Inventory</h2>
+  <ul>
+    {% for item in user_ingredients %}
+      <li>{{ item.name }} — Qty: {{ item.quantity }}</li>
+    {% endfor %}
+  </ul>
+</div>
 {% endblock %}
